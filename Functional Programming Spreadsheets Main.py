@@ -9,6 +9,7 @@ from datetime import datetime
 #testcode='def simple_function(w,x,y,z):return(-w+(x**y/x)%z)'
 #testcode='def range_function(x,y,z):return(list(range(x,x+y*2,z)))'
 testcode='def factors(x): return list(filter(lambda y:(x%y==0),list(range(1,x))))'
+#testcode='def squareseq(x): return list(map(lambda y:y*y,list(range(1,x))))'
 #returnstring=testcode[testcode.lower().find("return")+6:]
 tree=ast.parse(testcode)
 disptree=Tree()
@@ -46,7 +47,7 @@ def opsheetCSV(name,dict,formula):
     # Allow columns for dictionary then write function name out to sheet
     for i in range(1,len(dict)):
         row1+=","
-    row1=row1+name+"\n"
+    row1=row1+"FUNCTION NAME: "+name+"\n"
     print(row1)
     f.write(row1)
     # Write variables in second row
@@ -280,6 +281,14 @@ def Decode_Gen(node,argnumflg):
                         Desccol.append("__ref__")
                         Desccol.append(descstring)
                     print('*** Formula appended in List Filter, Formula list is:',Formula)
+                elif isinstance(nextobject,MapClass):
+                    opstring=nextobject.makelist()
+                    if Writeflg:
+                        Formula.append("="+opstring)
+                        Copydown.append(True)
+                        descstring="List("+descstring+")"
+                        Desccol.append(descstring)
+                    print('*** Formula appended in List Map, Formula list is:',Formula)
             print("\t*** in list",Formula[-1],descstring)
             return Formula[-1],descstring,descstring
         elif (functype=='filter'):
@@ -312,6 +321,36 @@ def Decode_Gen(node,argnumflg):
             print("LEFT FILTER")
             print("\t*** in Filter",opstring,filterobj)
             return opstring,descstring,filterobj
+        elif (functype=='map'):
+            print("Addressing map now")
+            print("GOT TO MAP")
+            descstring="Map("
+            arglist=[]
+            count=len(d['args'])
+            print("In Map: Number of args",count,"Args",d['args'])
+            for value in d['args']:
+                nexttoken,descstring1,_=Decode_Gen(value,False)
+                if (isinstance(nexttoken,int)):
+                    opstring+=str(nexttoken)
+                else:
+                    opstring+=nexttoken
+                descstring+=descstring1
+                arglist.append(nexttoken)
+                if count>1:
+                    opstring+=","
+                else:
+                    opstring+=")"
+                count-=1
+                print("Map Arglist =",arglist)
+            mapobj=MapClass(chr(ord(Argcol)+1)+str(ARGROW))
+            print ("Map Object =",mapobj)
+            if Writeflg:
+                Formula.append("="+Argcol+str(ARGROW))
+                Copydown.append(True)
+                Desccol.append(descstring)
+            print("LEFT MAP")
+            print("\t*** in Map",opstring,mapobj)
+            return opstring,descstring,mapobj
         opstring=functype+'('
         count=len(d['args'])
         for value in d['args']:
@@ -408,7 +447,7 @@ def Decode_Gen(node,argnumflg):
 def Decode_Name(node,argnumflg,pytflg):
     #global Argdict
     d=dict(ast.iter_fields(node))
-    if pytflg or d["id"] in ('list','range','filter'):
+    if pytflg or d["id"] in ('list','range','filter','map'):
         print("Name Decoded:",d["id"])
         return d["id"]
     else:
@@ -450,6 +489,23 @@ class FilterClass:
                   ",MATCH(ROW()-ROW("+chr(ord(self.ref[0])-2)+"$"+str(refrow)+"),"+refcol+"$"+\
                   self.ref[1]+":"+refcol+"$"+endrow+',0)),"""")'
         return opstring,opstring1
+
+class MapClass:
+    def __init__(self,ref):
+        self.ref=ref
+    def makelist(self):
+        #refcol=chr(ord(self.ref[0])+1)
+        #refrow=int(self.ref[1])-1
+        #endrow=str(NUMFOLDS+1)
+        opstring=self.ref
+        #opstring="IF("+self.ref+'="""","""",MAX('+refcol+"$"+str(refrow)+":"+refcol+str(refrow)+")+1)"
+        print("Map Class formula =",opstring)
+        #opstring1="IFERROR(INDEX("+self.ref[0]+"$"+self.ref[1]+":"+self.ref[0]+"$"+endrow+\
+        #          ",MATCH(ROW()-ROW("+chr(ord(self.ref[0])-2)+"$"+str(refrow)+"),"+refcol+"$"+\
+        #          self.ref[1]+":"+refcol+"$"+endrow+',0)),"""")'
+        return opstring
+
+
     
 # Visit each node of the tree in recursive fashion
 def ast_visit(node, par,level=0):
