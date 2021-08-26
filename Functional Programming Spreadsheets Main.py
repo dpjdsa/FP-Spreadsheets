@@ -7,8 +7,9 @@ from params import *
 from treelib import Node,Tree
 from datetime import datetime
 #testcode='def simple_function(w,x,y,z):return(-w+(x**y/x)%z)'
+testcode='def simple_function2(w,x,y,z):return(((-w+x)**y-x)%z)'
 #testcode='def range_function(x,y,z):return(list(range(x,x+y*2,z)))'
-testcode='def factors(x): return list(filter(lambda y:(x%y==0),list(range(1,x))))'
+#testcode='def factors(x): return list(filter(lambda y:(x%y==0),list(range(1,x))))'
 #testcode='def squareseq(x): return list(map(lambda y:y*y,list(range(1,x))))'
 #returnstring=testcode[testcode.lower().find("return")+6:]
 tree=ast.parse(testcode)
@@ -413,8 +414,8 @@ def Decode_Gen(node,argnumflg):
         print("UnaryOp Dict= ",d)
         opstringo,descstringo,_=Decode_Gen(d['op'],False)
         opstringd,descstringd,_=Decode_Gen(d['operand'],False)
-        opstring=opstringo+opstringd
-        descstring=descstringo+descstringd
+        opstring="("+opstringo+opstringd+")"
+        descstring="("+descstringo+descstringd+")"
         print("\t*** in unaryop",opstring,descstring)
         return opstring,descstring,descstring
     # Check for BinOp and decode
@@ -430,12 +431,12 @@ def Decode_Gen(node,argnumflg):
             print("Mod Found")
             print(d['left'],d['right'])
             opstring="MOD("+opstringl+","+opstringr+")"
-            descstring=descstringl+"%"+descstringr
+            descstring="("+descstringl+"%"+descstringr+")"
         # Otherwise for all other operators decode as Left, Op, Right sequence
         else:
             opstring,descstring,_=Decode_Gen(d['op'],False)
-            descstring=descstringl+descstring+descstringr
-            opstring=opstringl+opstring+opstringr
+            descstring="("+descstringl+descstring+descstringr+")"
+            opstring="("+opstringl+opstring+opstringr+")"
         print("\t*** in binop",opstring,descstring)
         return opstring,descstring,descstring
     else:
