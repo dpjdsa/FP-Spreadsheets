@@ -6,12 +6,12 @@ import random
 from params import *
 from treelib import Node,Tree
 from datetime import datetime
-#testcode='def simple_function(w,x,y,z):return(-w+(x**y/x)%z)'
-testcode='def simple_function2(w,x,y,z):return(((-w+x)**y-x)%z)'
+testcode='def simple_function(w,x,y,z):return(-w+(x**y/x)%z)'
+#testcode='def simple_function2(w,x,y,z):return(((-w+x)**y-x)%z)'
 #testcode='def range_function(x,y,z):return(list(range(x,x+y*2,z)))'
 #testcode='def factors(x): return list(filter(lambda y:(x%y==0),list(range(1,x))))'
 #testcode='def squareseq(x): return list(map(lambda y:y*y,list(range(1,x))))'
-#returnstring=testcode[testcode.lower().find("return")+6:]
+returnexp=testcode[testcode.lower().find("return")+6:]
 tree=ast.parse(testcode)
 disptree=Tree()
 # Reset global line counter, each line of output will have a unique "lines" identifier
@@ -36,7 +36,7 @@ def shift_formula_down(formula,inc):
 def permitted_parameter(value):
     return value in ('name','body','args','arg','left','right','op','value','id','n','func')
 # Code to output results as CSV file which can be read into Excel
-def opsheetCSV(name,dict,formula):
+def opsheetCSV(name,dict,formulas,retexp):
     #Open file
     print("Writing Output CSV to testfile.csv")
     f=open("testfile.csv","w")
@@ -45,14 +45,9 @@ def opsheetCSV(name,dict,formula):
     # Get timestamp and date and write it and number of folds to sheet
     now=datetime.now()
     row1=row1+","+now.strftime("%d/%m/%Y %H:%M:%S")+","+"FOLDS: "+str(NUMFOLDS)
-    # Allow columns for dictionary then write function name out to sheet
+    # Allow spare columns for arguments before writing function call out to sheet
     for i in range(1,len(dict)):
         row1+=","
-    row1=row1+"FUNCTION NAME: "+name+"\n"
-    print(row1)
-    f.write(row1)
-    # Write variables in second row
-    row2="Variables:"
     # Now create a reverse dictionary to ensure arguments are inserted into correct cell positions
     revdict={}
     # Create reverse dictionary for absolute references only, stripping out all $ characters from the references
@@ -63,6 +58,17 @@ def opsheetCSV(name,dict,formula):
     print("Reverse Dictionary=",revdict)
     # Get a sorted list of keys of the reverse dictionary
     sortedkeys=sorted(list(revdict.keys()))
+    # Now assemble arguments to function
+    name+='('
+    for i in sortedkeys:
+        name+=revdict[i]+","
+    name=name[:-1]
+    name+=")"
+    row1=row1+'"'+"FUNCTION NAME: "+name+'"'+","+'"'+"RETURNS: "+retexp+'"'+"\n"
+    print(row1)
+    f.write(row1)
+    # Write variables in second row
+    row2="Variables:"
     # Put the variable names and values into the columns corresponding to references in the sorted keys
     curcol=1
     row3="Values:"
@@ -90,7 +96,7 @@ def opsheetCSV(name,dict,formula):
     f.write(row2)
     # Add blank column before writing out formulas
     row3+=","
-    for item in Formula:
+    for item in formulas:
         row3+=","+'"'+item+'"'
     row3+='\n'
     print("Row 3 =:",row3)
@@ -101,7 +107,7 @@ def opsheetCSV(name,dict,formula):
         #for j in range(len(dict)):
         for j in range(startformcol):
             row+=','
-        for (offset,item) in enumerate(Formula):
+        for (offset,item) in enumerate(formulas):
             if Copydown[offset]:
                 row+=","+'"'+shift_formula_down(item,(i-1))+'"'
             else:
@@ -110,7 +116,7 @@ def opsheetCSV(name,dict,formula):
         print(row)
         f.write(row)
     endrow=""
-    for i in range(len(dict)+len(Formula)+1):    
+    for i in range(len(dict)+len(formulas)+1):    
         endrow+='"=REPT(CHAR(126),CELL(""WIDTH"",'+chr(65+i)+'1))",'
     print(endrow)
     f.write(endrow)
@@ -149,18 +155,18 @@ def Decode_Gen(node,argnumflg):
         opstring=""
         for i in range(len(d['args'])):
             d1=dict(ast.iter_fields(d['args'][i]))
-            opstring=opstring+d1['arg']
+            opstring=opstring+d1['id']
             if count>1:
                 opstring+=","
-            if d1['arg'] not in Argdict:
+            if d1['id'] not in Argdict:
                 if Absflg:
-                    Argdict[d1['arg']]=("$"+Argcol+"$"+str(ARGROW),random.randrange(50)+1)
+                    Argdict[d1['id']]=("$"+Argcol+"$"+str(ARGROW),random.randrange(50)+1)
                 else:
-                    Argdict[d1['arg']]=(Argcol+str(ARGROW),random.randrange(50)+1)
-                print("Key added:",d1['arg'],Argdict,Argcol)
+                    Argdict[d1['id']]=(Argcol+str(ARGROW),random.randrange(50)+1)
+                print("Key added:",d1['id'],Argdict,Argcol)
                 Argcol=chr(ord(Argcol)+1)
             else:
-                print("Key ",d1['arg'],"already in Arg Dictionary")
+                print("Key ",d1['id'],"already in Arg Dictionary")
             print("****In arguments, ArgCol=",Argcol)
         print("\t*** in Arguments",opstring,opstring)
         return opstring,opstring,opstring
@@ -542,5 +548,8 @@ opstring=""
 ast_visit(tree,"root",0)
 print()
 disptree.show()
-print("\nTest Code:",testcode,"\nFunction Name: ",Funcname,"\nVariables:",Argdict,"\nFormula:",Formula,"\n")
-opsheetCSV(Funcname,Argdict,Formula)
+print("Test Code:",testcode)
+print("Function Name: ",Funcname)
+print("Variables: ",Argdict)
+print("Formula: ",Formula)
+opsheetCSV(Funcname,Argdict,Formula,returnexp)
