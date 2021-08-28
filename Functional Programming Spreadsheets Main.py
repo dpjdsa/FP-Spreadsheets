@@ -6,11 +6,11 @@ import random
 from params import *
 from treelib import Node,Tree
 from datetime import datetime
-testcode='def simple_function(w,x,y,z):return(-w+(x**y/x)%z)'
+#testcode='def simple_function(w,x,y,z):return(-w+(x**y/x)%z)'
 #testcode='def simple_function2(w,x,y,z):return(((-w+x)**y-x)%z)'
 #testcode='def range_function(x,y,z):return(list(range(x,x+y*2,z)))'
 #testcode='def factors(x): return list(filter(lambda y:(x%y==0),list(range(1,x))))'
-#testcode='def squareseq(x): return list(map(lambda y:y*y,list(range(1,x))))'
+testcode='def squareseq(x): return list(map(lambda y:y*y,list(range(1,x))))'
 returnexp=testcode[testcode.lower().find("return")+6:]
 tree=ast.parse(testcode)
 disptree=Tree()
@@ -58,14 +58,14 @@ def opsheetCSV(name,dict,formulas,retexp):
     print("Reverse Dictionary=",revdict)
     # Get a sorted list of keys of the reverse dictionary
     sortedkeys=sorted(list(revdict.keys()))
-    # Now assemble arguments to function
-    name+='('
+    # Now assemble arguments to function adding commas between arguments and removing last comma before close bracket
+    name+="("
     for i in sortedkeys:
         name+=revdict[i]+","
     name=name[:-1]
     name+=")"
     row1=row1+'"'+"FUNCTION NAME: "+name+'"'+","+'"'+"RETURNS: "+retexp+'"'+"\n"
-    print(row1)
+    print("Row 1:=",row1)
     f.write(row1)
     # Write variables in second row
     row2="Variables:"
@@ -77,7 +77,7 @@ def opsheetCSV(name,dict,formulas,retexp):
             # Check if column name matches column of argument cell reference
             if chr(65+curcol)==key[0]:
                 break
-            # If not skip to next column
+            # If not skip to next column in both rows 2 and 3
             row2+=","
             row3+=","
             curcol+=1
@@ -85,26 +85,25 @@ def opsheetCSV(name,dict,formulas,retexp):
         row2+=","+revdict[key]
         row3+=","+str(Argdict[revdict[key]][1])
         curcol+=1
-    # Add column descriptions after blank column
+    # Add column descriptions after blank column and record start of formulas in startformcol
     startformcol=curcol
     row2+=","
     for description in Desccol:
         row2=row2+","+'"'+description+'"'
     # and add description of return value
     row2=row2+',"'+'"\n'
-    print("Row 2 =:",row2)
+    print("Row 2=:",row2)
     f.write(row2)
     # Add blank column before writing out formulas
     row3+=","
     for item in formulas:
         row3+=","+'"'+item+'"'
     row3+='\n'
-    print("Row 3 =:",row3)
+    print("Row 3=:",row3)
     f.write(row3)
     # Copy formulas down according to settings in Copydown list
     for i in range(2,NUMFOLDS):
         row=""
-        #for j in range(len(dict)):
         for j in range(startformcol):
             row+=','
         for (offset,item) in enumerate(formulas):
@@ -113,15 +112,18 @@ def opsheetCSV(name,dict,formulas,retexp):
             else:
                 row+=","
         row+='\n'
-        print(row)
+        print("Row "+str(i+2)+"=:",row)
         f.write(row)
     endrow=""
+    # For last row add formula which will fill each cell width with ~ characters
     for i in range(len(dict)+len(formulas)+1):    
         endrow+='"=REPT(CHAR(126),CELL(""WIDTH"",'+chr(65+i)+'1))",'
-    print(endrow)
+    print("Row "+str(NUMFOLDS+2)+"=:",endrow)
     f.write(endrow)
     f.close()
     return
+
+# Lists the node and unpacks the children of a node
 def str_node(node):
     if isinstance(node, ast.AST):
         fields = [(name, str_node(val)) for name, val in ast.iter_fields(node) if permitted_parameter(name)]
@@ -129,11 +131,10 @@ def str_node(node):
         return rv + ')'
     else:
         return repr(node)
-# Translates the Python code from into Excel formula and description of code translated 
+# Translates the Python entity represented by node into an Excel formula and description of code translated 
 def Decode_Gen(node,argnumflg):
     # Argument Dictionary is global
     global Funcname,Argcol,Absflg,Writeflg
-    #global Argdict,Formula,Copydown,ARGROW
     # Check for Module
     if isinstance(node,ast.Module):
         print("Module Found")
@@ -142,7 +143,6 @@ def Decode_Gen(node,argnumflg):
     elif isinstance(node,ast.FunctionDef):
         d=dict(ast.iter_fields(node))
         Funcname=d['name']
-        print("Function Definition Found",Funcname)
         print("\t*** in Function Definition",Funcname,Funcname)
         return Funcname,Funcname,Funcname
     # Check for Arguments
@@ -155,19 +155,20 @@ def Decode_Gen(node,argnumflg):
         opstring=""
         for i in range(len(d['args'])):
             d1=dict(ast.iter_fields(d['args'][i]))
-            opstring=opstring+d1['id']
+            print("d1=",d1)
+            opstring=opstring+d1['arg']
             if count>1:
                 opstring+=","
-            if d1['id'] not in Argdict:
+            if d1['arg'] not in Argdict:
                 if Absflg:
-                    Argdict[d1['id']]=("$"+Argcol+"$"+str(ARGROW),random.randrange(50)+1)
+                    Argdict[d1['arg']]=("$"+Argcol+"$"+str(ARGROW),random.randrange(50)+1)
                 else:
-                    Argdict[d1['id']]=(Argcol+str(ARGROW),random.randrange(50)+1)
-                print("Key added:",d1['id'],Argdict,Argcol)
+                    Argdict[d1['arg']]=(Argcol+str(ARGROW),random.randrange(50)+1)
+                print("Key added:",d1['arg'],Argdict,Argcol)
                 Argcol=chr(ord(Argcol)+1)
             else:
-                print("Key ",d1['id'],"already in Arg Dictionary")
-            print("****In arguments, ArgCol=",Argcol)
+                print("Key ",d1['arg'],"already in Arg Dictionary")
+            print("\t\t***In arguments, ArgCol=",Argcol)
         print("\t*** in Arguments",opstring,opstring)
         return opstring,opstring,opstring
     # Check for Lambda expression
@@ -177,18 +178,16 @@ def Decode_Gen(node,argnumflg):
         print("Lambda Dictionary =",d)
         # Get argument from 1 column to the right
         Argcol=chr(ord(Argcol)+1)
-        print("****In Lambda, ArgCol=",Argcol)
+        print("\t***In Lambda, ArgCol=",Argcol)
         print("Args decoded =",Decode_Gen(d['args'],False)[0])
         opstring,descstring,_=Decode_Gen(d['body'],False)
         # Add fix so that if formula returns error in the sheet then "" is returned
-        #Formula.append("=IFERROR("+opstring+","+'"""")')
-        #Copydown.append(True)
         if Writeflg:
             Formula.insert(0,"=IFERROR("+opstring+","+'"""")')
             Copydown.insert(0,True)
-            descstring="Lambda "+Decode_Gen(d['args'],False)[1]+":("+descstring+"),"
+            descstring="Lambda "+Decode_Gen(d['args'],False)[1]+":("+descstring+")"
             Desccol.append(descstring)
-            print("*** Formula Appended in Lambda, Formula is now",Formula)
+            print("\t\t*** Formula Appended in Lambda, Formula is now",Formula)
         print("\t*** in Lambda",Formula[-1],descstring)
         return Formula[-1],descstring,descstring
     # Check for Return statement and derive Excel formula to calculate return value
@@ -208,7 +207,6 @@ def Decode_Gen(node,argnumflg):
             Formula.append("="+opstring)
             Copydown.append(False)
             Desccol.append(descstring)
-        print("*** RETURN VALUE ***",opstring)
         print("\t*** in Return",opstring,descstring)
         Writeflg=False
         return opstring,descstring,descstring
@@ -256,7 +254,6 @@ def Decode_Gen(node,argnumflg):
                 print("Range Arglist=",arglist)
             rangeobj=RangeClass("$"+Argcol+"$"+str(ARGROW),start,stop,step)
             print("Range Object =",rangeobj)
-            #Declare_Args()
             print("Range Evaluation, Start:",start," Stop:",stop, "Step:",step)
             print("\t*** in Range",opstring,descstring,rangeobj)
             return opstring,descstring,rangeobj
@@ -267,7 +264,7 @@ def Decode_Gen(node,argnumflg):
             print("In List:Number of args",count,"Args",d['args'])
             descstring=""
             for value in d['args']:
-                print("*** In List value =",value)
+                print("\t*** In List, value =",value)
                 nexttoken,descstring,nextobject=Decode_Gen(value,False)
                 if isinstance(nextobject,RangeClass):
                     opstring=nextobject.makelist()
@@ -276,7 +273,7 @@ def Decode_Gen(node,argnumflg):
                         Copydown.insert(0,True)
                         descstring="List("+descstring+")"
                         Desccol.insert(0,descstring)
-                    print('*** Formula appended in List Range, Formula list is:',Formula)
+                    print('\t\t*** Formula appended in List Range, Formula list is:',Formula)
                 elif isinstance(nextobject,FilterClass):
                     opstring,opstring1=nextobject.makelist()
                     if Writeflg:
@@ -287,7 +284,7 @@ def Decode_Gen(node,argnumflg):
                         descstring="List("+descstring+")"
                         Desccol.append("__ref__")
                         Desccol.append(descstring)
-                    print('*** Formula appended in List Filter, Formula list is:',Formula)
+                    print('\t\t*** Formula appended in List Filter, Formula list is:',Formula)
                 elif isinstance(nextobject,MapClass):
                     opstring=nextobject.makelist()
                     if Writeflg:
@@ -295,67 +292,55 @@ def Decode_Gen(node,argnumflg):
                         Copydown.append(True)
                         descstring="List("+descstring+")"
                         Desccol.append(descstring)
-                    print('*** Formula appended in List Map, Formula list is:',Formula)
+                    print('\t\t*** Formula appended in List Map, Formula list is:',Formula)
             print("\t*** in list",Formula[-1],descstring)
             return Formula[-1],descstring,descstring
         elif (functype=='filter'):
             print("Addressing filter now")
-            print("GOT TO FILTER")
             descstring="Filter("
             arglist=[]
-            count=len(d['args'])
-            print("In Filter: Number of args",count,"Args",d['args'])
+            print("In Filter: Number of args",len(d['args']),"Args",d['args'])
             for value in d['args']:
                 nexttoken,descstring1,_=Decode_Gen(value,False)
                 if (isinstance(nexttoken,int)):
-                    opstring+=str(nexttoken)
+                    opstring+=str(nexttoken)+","
                 else:
-                    opstring+=nexttoken
-                descstring+=descstring1
+                    opstring+=nexttoken+","
+                descstring+=descstring1+","
                 arglist.append(nexttoken)
-                if count>1:
-                    opstring+=","
-                else:
-                    opstring+=")"
-                count-=1
                 print("Filter Arglist =",arglist)
+            opstring=opstring[:-1]+")"
+            descstring=descstring[:-1]+")"
             filterobj=FilterClass(chr(ord(Argcol)+1)+str(ARGROW))
             print ("Filter Object =",filterobj)
             if Writeflg:
                 Formula.append("=IFERROR(IF("+Argcol+str(ARGROW)+","+chr(ord(Argcol)-1)+str(ARGROW)+',""""),"""")')
                 Copydown.append(True)
                 Desccol.append(descstring)
-            print("LEFT FILTER")
             print("\t*** in Filter",opstring,filterobj)
             return opstring,descstring,filterobj
         elif (functype=='map'):
             print("Addressing map now")
-            print("GOT TO MAP")
             descstring="Map("
             arglist=[]
-            count=len(d['args'])
-            print("In Map: Number of args",count,"Args",d['args'])
+            print("In Map: Number of args",len(d['args']),"Args",d['args'])
             for value in d['args']:
                 nexttoken,descstring1,_=Decode_Gen(value,False)
                 if (isinstance(nexttoken,int)):
-                    opstring+=str(nexttoken)
+                    opstring+=str(nexttoken)+","
                 else:
-                    opstring+=nexttoken
-                descstring+=descstring1
+                    opstring+=nexttoken+","
+                descstring+=descstring1+","
                 arglist.append(nexttoken)
-                if count>1:
-                    opstring+=","
-                else:
-                    opstring+=")"
-                count-=1
                 print("Map Arglist =",arglist)
+            opsstring=opstring[:-1]+")"
+            descstring=descstring[:-1]+")"
             mapobj=MapClass(chr(ord(Argcol)+1)+str(ARGROW))
             print ("Map Object =",mapobj)
             if Writeflg:
                 Formula.append("="+Argcol+str(ARGROW))
                 Copydown.append(True)
                 Desccol.append(descstring)
-            print("LEFT MAP")
             print("\t*** in Map",opstring,mapobj)
             return opstring,descstring,mapobj
         opstring=functype+'('
@@ -445,6 +430,12 @@ def Decode_Gen(node,argnumflg):
             opstring="("+opstringl+opstring+opstringr+")"
         print("\t*** in binop",opstring,descstring)
         return opstring,descstring,descstring
+    elif isinstance(node,ast.Load):
+        print("Load Found")
+        return 'Load','Load','Load'
+    elif isinstance(node,ast.arg):
+        print("Argument Found")
+        return 'Arg','Arg','Arg'
     else:
         print("Got to Statement not found:",node,str_node(node))
         return '?'
@@ -468,9 +459,9 @@ def Decode_Name(node,argnumflg,pytflg):
 def Decode_Num(node,argnumflg):
     d=dict(ast.iter_fields(node))
     if argnumflg:
-        return(d["n"])
+        return(d['value'])
     else:
-        return str(d["n"])
+        return str(d['value'])
 class RangeClass:
     def __init__(self,ref,start=0,stop=1,step=1):
         self.start=start
@@ -501,15 +492,8 @@ class MapClass:
     def __init__(self,ref):
         self.ref=ref
     def makelist(self):
-        #refcol=chr(ord(self.ref[0])+1)
-        #refrow=int(self.ref[1])-1
-        #endrow=str(NUMFOLDS+1)
         opstring=self.ref
-        #opstring="IF("+self.ref+'="""","""",MAX('+refcol+"$"+str(refrow)+":"+refcol+str(refrow)+")+1)"
         print("Map Class formula =",opstring)
-        #opstring1="IFERROR(INDEX("+self.ref[0]+"$"+self.ref[1]+":"+self.ref[0]+"$"+endrow+\
-        #          ",MATCH(ROW()-ROW("+chr(ord(self.ref[0])-2)+"$"+str(refrow)+"),"+refcol+"$"+\
-        #          self.ref[1]+":"+refcol+"$"+endrow+',0)),"""")'
         return opstring
 
 
@@ -518,7 +502,6 @@ class MapClass:
 def ast_visit(node, par,level=0):
     # Allow function to access global variable
     global lines,opstring
-    #global Argdict,Formula,Copydown
     # print out node at current level
     statement=str_node(node)
     print(lines,'|',level,'  ' * level + statement)
@@ -543,13 +526,9 @@ def ast_visit(node, par,level=0):
             ast_visit(value, prnt,level=level+1)
         elif (value is not None):
             disptree.create_node(str(value),str(value)+str(lines),parent=par)
-            print("value = ",value)
 opstring=""
 ast_visit(tree,"root",0)
 print()
 disptree.show()
-print("Test Code:",testcode)
-print("Function Name: ",Funcname)
-print("Variables: ",Argdict)
-print("Formula: ",Formula)
+print("\nTest Code:",testcode,"\nFunction Name: ",Funcname,"\nVariables: ",Argdict,"\nFormula: ",Formula)
 opsheetCSV(Funcname,Argdict,Formula,returnexp)
