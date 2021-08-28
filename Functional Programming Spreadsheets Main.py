@@ -9,8 +9,8 @@ from datetime import datetime
 #testcode='def simple_function(w,x,y,z):return(-w+(x**y/x)%z)'
 #testcode='def simple_function2(w,x,y,z):return(((-w+x)**y-x)%z)'
 #testcode='def range_function(x,y,z):return(list(range(x,x+y*2,z)))'
-#testcode='def factors(x): return list(filter(lambda y:(x%y==0),list(range(1,x))))'
-testcode='def squareseq(x): return list(map(lambda y:y*y,list(range(1,x))))'
+testcode='def factors(x): return list(filter(lambda y:(x%y==0),list(range(1,x))))'
+#testcode='def squareseq(x): return list(map(lambda y:y*y,list(range(1,x))))'
 returnexp=testcode[testcode.lower().find("return")+6:]
 tree=ast.parse(testcode)
 disptree=Tree()
