@@ -6,22 +6,22 @@ import random
 from params import *
 from treelib import Node,Tree
 from datetime import datetime
-#testcode='def simple_function(w,x,y,z):return(-w+(x**y/x)%z)'
-#testcode='def simple_function2(w,x,y,z):return(((-w+x)**y-x)%z)'
-#testcode='def range_function(x,y,z):return(list(range(x,x+y*2,z)))'
-testcode='def factors(x): return list(filter(lambda y:(x%y==0),list(range(1,x))))'
-#testcode='def squareseq(x): return list(map(lambda y:y*y,list(range(1,x))))'
-returnexp=testcode[testcode.lower().find("return")+6:]
-tree=ast.parse(testcode)
-disptree=Tree()
-# Reset global line counter, each line of output will have a unique "lines" identifier
-lines=0
-Argdict={}      # Dictionary to hold variables, their equivalent cell references and values
-Absflg=True     # Flag to make cell references absolute rather than relative
-Formula=[]      # List containing formulas to be output to CSV file
-Desccol=[]      # List containing column descriptors
-Copydown=[]     # List containing flag for each column defining on whether it is copied down
+
 #
+# Reads in function definitions from file filename and returns list of function definitions
+def readfunctions(filename):
+    funclist=[]
+    with open(filename) as f:
+        while True:
+            inputtxt=f.readline()
+            if not inputtxt:
+                break
+            # Skip any comment lines at beginning which start with #
+            if inputtxt[0]!='#':
+                funclist.append(inputtxt)
+    print("Function Lines Read in are: ",funclist)
+    f.close()
+    return funclist
 # Looks in formula for cells of type A-Z,0-9 in formula string and shifts them down by inc, acts recursively
 def shift_formula_down(formula,inc):
     # Check for cell references of type [A-Z][0-9] which therefore have no absolute row references
@@ -44,10 +44,12 @@ def opsheetCSV(name,dict,formulas,retexp):
     row1="Test Functional Programme to Spreadsheet"
     # Get timestamp and date and write it and number of folds to sheet
     now=datetime.now()
-    row1=row1+","+now.strftime("%d/%m/%Y %H:%M:%S")+","+"FOLDS: "+str(NUMFOLDS)
+    row1=row1+","+now.strftime("%d/%m/%Y %H:%M:%S")+","+"FOLDS: "+str(NUMFOLDS)+","
+    rightcol=3
     # Allow spare columns for arguments before writing function call out to sheet
     for i in range(1,len(dict)):
         row1+=","
+        rightcol+=1
     # Now create a reverse dictionary to ensure arguments are inserted into correct cell positions
     revdict={}
     # Create reverse dictionary for absolute references only, stripping out all $ characters from the references
@@ -64,11 +66,16 @@ def opsheetCSV(name,dict,formulas,retexp):
         name+=revdict[i]+","
     name=name[:-1]
     name+=")"
-    row1=row1+'"'+"FUNCTION NAME: "+name+'"'+","+'"'+"RETURNS: "+retexp+'"'+"\n"
+    row1=row1+'"'+"FUNCTION NAME: "+name+'"'+","+'"'+"RETURNS: "+retexp+'"'
+    rightcol+=2
+    for i in range(rightcol,ord(MAXCOL)-64):
+        row1+=","
+    row1+=chr(124)+"\n"
     print("Row 1:=",row1)
     f.write(row1)
     # Write variables in second row
     row2="Variables:"
+    rightcol=1
     # Put the variable names and values into the columns corresponding to references in the sorted keys
     curcol=1
     row3="Values:"
@@ -81,24 +88,32 @@ def opsheetCSV(name,dict,formulas,retexp):
             row2+=","
             row3+=","
             curcol+=1
+            rightcol+=1
         # Column matches cell reference so put argument name and value in column of rows 2 and 3.
         row2+=","+revdict[key]
         row3+=","+str(Argdict[revdict[key]][1])
         curcol+=1
+        rightcol+=1
     # Add column descriptions after blank column and record start of formulas in startformcol
     startformcol=curcol
     row2+=","
+    rightcol+=1
     for description in Desccol:
         row2=row2+","+'"'+description+'"'
+        rightcol+=1
     # and add description of return value
-    row2=row2+',"'+'"\n'
+    for i in range(rightcol,ord(MAXCOL)-64):
+        row2+=","
+    row2=row2+chr(124)+'\n'
     print("Row 2=:",row2)
     f.write(row2)
     # Add blank column before writing out formulas
     row3+=","
     for item in formulas:
         row3+=","+'"'+item+'"'
-    row3+='\n'
+    for i in range(rightcol,ord(MAXCOL)-64):
+        row3+=","
+    row3+=chr(124)+'\n'
     print("Row 3=:",row3)
     f.write(row3)
     # Copy formulas down according to settings in Copydown list
@@ -106,18 +121,23 @@ def opsheetCSV(name,dict,formulas,retexp):
         row=""
         for j in range(startformcol):
             row+=','
+        rightcol=startformcol+1
         for (offset,item) in enumerate(formulas):
             if Copydown[offset]:
                 row+=","+'"'+shift_formula_down(item,(i-1))+'"'
             else:
                 row+=","
-        row+='\n'
+            rightcol+=1
+        for j in range(rightcol,ord(MAXCOL)-64):
+            row+=","
+        row+=chr(124)+'\n'
         print("Row "+str(i+2)+"=:",row)
         f.write(row)
     endrow=""
     # For last row add formula which will fill each cell width with ~ characters
-    for i in range(len(dict)+len(formulas)+1):    
+    for i in range(ord(MAXCOL)-65):    
         endrow+='"=REPT(CHAR(126),CELL(""WIDTH"",'+chr(65+i)+'1))",'
+    endrow+=chr(42)
     print("Row "+str(NUMFOLDS+2)+"=:",endrow)
     f.write(endrow)
     f.close()
@@ -443,7 +463,6 @@ def Decode_Gen(node,argnumflg):
 
 # Decode nodes of type Name and returns location in sheet
 def Decode_Name(node,argnumflg,pytflg):
-    #global Argdict
     d=dict(ast.iter_fields(node))
     if pytflg or d["id"] in ('list','range','filter','map'):
         print("Name Decoded:",d["id"])
@@ -526,7 +545,19 @@ def ast_visit(node, par,level=0):
             ast_visit(value, prnt,level=level+1)
         elif (value is not None):
             disptree.create_node(str(value),str(value)+str(lines),parent=par)
+# Main Code
+# Reset global line counter, each line of output will have a unique "lines" identifier
+lines=0
+Argdict={}      # Dictionary to hold variables, their equivalent cell references and values
+Absflg=True     # Flag to make cell references absolute rather than relative
+Formula=[]      # List containing formulas to be output to CSV file
+Desccol=[]      # List containing column descriptors
+Copydown=[]     # List containing flag for each column defining on whether it is copied down
 opstring=""
+testcode=readfunctions('input_file.txt')
+returnexp=testcode[0][testcode[0].lower().find("return")+6:]
+tree=ast.parse(testcode[0])
+disptree=Tree()
 ast_visit(tree,"root",0)
 print()
 disptree.show()
