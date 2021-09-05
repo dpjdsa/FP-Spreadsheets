@@ -24,22 +24,38 @@ def readfunctions(filename):
     return funclist
 # Looks in formula for cells of type A-Z,0-9 in formula string and shifts them down by inc, acts recursively
 def shift_formula_down(formula,inc):
-    # Check for cell references of type [A-Z][0-9] which therefore have no absolute row references
-    p=re.compile('[A-Z][0-9]')
+    changeflg=False
+    # Check for cell references of type [A-Z][0-9][0-9] which therefore have no absolute row references
+    p=re.compile('[A-Z][0-9][0-9][0-9]')
+    q=re.compile('[A-Z][0-9][0-9]')
+    r=re.compile('[A-Z][0-9]')
     m=p.search(formula)
     # If any such reference found then increment the row part of the reference by inc and analyse remainder recursively
     if m:
-        return formula[:m.start()+1]+str(int(formula[m.start()+1])+inc)+shift_formula_down(formula[m.start()+2:],inc)
+        ms=m.start()
+        changeflg=True
+        #return formula[:m.start()+1]+str(int(formula[m.start()+1])+inc)+shift_formula_down(formula[m.start()+2:],inc)
+        return formula[:ms+1]+str(int(formula[ms+1:ms+4])+inc)+shift_formula_down(formula[ms+4:],inc)
     else:
-        return formula
+        if changeflg==False:
+            m=q.search(formula)
+            if m:
+                ms=m.start()
+                changeflg=True
+                return formula[:ms+1]+str(int(formula[ms+1:ms+3])+inc)+shift_formula_down(formula[ms+3:],inc)
+            else:
+                if changeflg==False:
+                    m=r.search(formula)
+                    if m:
+                        ms=m.start()
+                        return formula[:ms+1]+str(int(formula[ms+1])+inc)+shift_formula_down(formula[ms+2:],inc)
+    return formula
+    
 # Checks for all types of keywords which are allowable for decoding
 def permitted_parameter(value):
     return value in ('name','body','args','arg','left','right','op','value','id','n','func')
-# Code to output results as CSV file which can be read into Excel
-def opsheetCSV(name,dict,formulas,retexp):
-    #Open file
-    print("Writing Output CSV to testfile.csv")
-    f=open("testfile.csv","w")
+# Code to output results as CSV file which can be read into Excel. Needs file to be open
+def opsheetCSV(f,name,dict,formulas,retexp):
     # Write row including title,date,time and function name in first row
     row1="Test Functional Programme to Spreadsheet"
     # Get timestamp and date and write it and number of folds to sheet
@@ -137,10 +153,9 @@ def opsheetCSV(name,dict,formulas,retexp):
     # For last row add formula which will fill each cell width with ~ characters
     for i in range(ord(MAXCOL)-65):    
         endrow+='"=REPT(CHAR(126),CELL(""WIDTH"",'+chr(65+i)+'1))",'
-    endrow+=chr(42)
+    endrow+=chr(42)+"\n"
     print("Row "+str(NUMFOLDS+2)+"=:",endrow)
     f.write(endrow)
-    f.close()
     return
 
 # Lists the node and unpacks the children of a node
@@ -154,7 +169,7 @@ def str_node(node):
 # Translates the Python entity represented by node into an Excel formula and description of code translated 
 def Decode_Gen(node,argnumflg):
     # Argument Dictionary is global
-    global Funcname,Argcol,Absflg,Writeflg
+    global Funcname,Funcdict,Argcol,Absflg,Writeflg
     # Check for Module
     if isinstance(node,ast.Module):
         print("Module Found")
@@ -181,9 +196,9 @@ def Decode_Gen(node,argnumflg):
                 opstring+=","
             if d1['arg'] not in Argdict:
                 if Absflg:
-                    Argdict[d1['arg']]=("$"+Argcol+"$"+str(ARGROW),random.randrange(50)+1)
+                    Argdict[d1['arg']]=("$"+Argcol+"$"+str(Argrow),random.randrange(50)+1)
                 else:
-                    Argdict[d1['arg']]=(Argcol+str(ARGROW),random.randrange(50)+1)
+                    Argdict[d1['arg']]=(Argcol+str(Argrow),random.randrange(50)+1)
                 print("Key added:",d1['arg'],Argdict,Argcol)
                 Argcol=chr(ord(Argcol)+1)
             else:
@@ -213,6 +228,8 @@ def Decode_Gen(node,argnumflg):
     # Check for Return statement and derive Excel formula to calculate return value
     elif isinstance(node,ast.Return):
         print("Return Found")
+        Funcdict[Funcname]=node
+        print("Function Dictionary =",Funcdict)
         # Set a flag to ouput formulas and titles when processing the Return class
         Writeflg=True
         # Set all arguments found to have relative cell references (such as in Lambda functions)
@@ -237,142 +254,147 @@ def Decode_Gen(node,argnumflg):
         print("Decoded Func",d['func'])
         functype=Decode_Gen(d['func'],False)[0]
         print("Decoded General: ",functype)
-        opstring=functype+"("
-        if (functype=='range'):
-            print("Need to address range here")
-            descstring="Range("
-            arglist=[]
+        if isinstance(functype,ast.Return):
+            print("Need to address Return here")
+            test1,test2,_=Decode_Gen(functype,False)
+            print("Test 1 =",test1,"Test 2 =",test2)
+        else:
+            opstring=functype+"("
+            if (functype=='range'):
+                print("Need to address range here")
+                descstring="Range("
+                arglist=[]
+                count=len(d['args'])
+                start='0'
+                step='1'
+                stop='0'
+                if count==1:
+                    stop,stopd,_=Decode_Gen(d['args'][0],False)
+                    descstring+=stopd+")"
+                elif count==2:
+                    start,startd,_=Decode_Gen(d['args'][0],False)
+                    stop,stopd,_=Decode_Gen(d['args'][1],False)
+                    descstring+=startd+","+stopd+")"
+                elif count==3:
+                    start,startd,_=Decode_Gen(d['args'][0],False)
+                    stop,stopd,_=Decode_Gen(d['args'][1],False)
+                    step,stepd,_=Decode_Gen(d['args'][2],False)
+                    descstring+=startd+","+stopd+","+stepd+")"
+                print("Start=",start,"Stop=",stop,"Step=",step)
+                for value in d['args']:
+                    nexttoken=Decode_Gen(value,False)[0]
+                    if (isinstance(nexttoken,int)):
+                        opstring+=str(nexttoken)
+                    else:
+                        opstring+=nexttoken
+                    arglist.append(nexttoken)
+                    if count>1:
+                        opstring+=","
+                    else:
+                        opstring+=")"
+                    count-=1
+                    print("Range Arglist=",arglist)
+                rangeobj=RangeClass("$"+Argcol+"$"+str(Argrow),start,stop,step)
+                print("Range Object =",rangeobj)
+                print("Range Evaluation, Start:",start," Stop:",stop, "Step:",step)
+                print("\t*** in Range",opstring,descstring,rangeobj)
+                return opstring,descstring,rangeobj
+            elif (functype=='list'):
+                print("Addressing list now")
+                arglist=[]
+                count=len(d['args'])
+                print("In List:Number of args",count,"Args",d['args'])
+                descstring=""
+                for value in d['args']:
+                    print("\t*** In List, value =",value)
+                    nexttoken,descstring,nextobject=Decode_Gen(value,False)
+                    if isinstance(nextobject,RangeClass):
+                        opstring=nextobject.makelist()
+                        if Writeflg:
+                            Formula.insert(0,"="+opstring)
+                            Copydown.insert(0,True)
+                            descstring="List("+descstring+")"
+                            Desccol.insert(0,descstring)
+                        print('\t\t*** Formula appended in List Range, Formula list is:',Formula)
+                    elif isinstance(nextobject,FilterClass):
+                        opstring,opstring1=nextobject.makelist()
+                        if Writeflg:
+                            Formula.append("="+opstring)
+                            Formula.append("="+opstring1)
+                            Copydown.append(True)
+                            Copydown.append(True)
+                            descstring="List("+descstring+")"
+                            Desccol.append("__ref__")
+                            Desccol.append(descstring)
+                        print('\t\t*** Formula appended in List Filter, Formula list is:',Formula)
+                    elif isinstance(nextobject,MapClass):
+                        opstring=nextobject.makelist()
+                        if Writeflg:
+                            Formula.append("="+opstring)
+                            Copydown.append(True)
+                            descstring="List("+descstring+")"
+                            Desccol.append(descstring)
+                        print('\t\t*** Formula appended in List Map, Formula list is:',Formula)
+                print("\t*** in list",Formula[-1],descstring)
+                return Formula[-1],descstring,descstring
+            elif (functype=='filter'):
+                print("Addressing filter now")
+                descstring="Filter("
+                arglist=[]
+                print("In Filter: Number of args",len(d['args']),"Args",d['args'])
+                for value in d['args']:
+                    nexttoken,descstring1,_=Decode_Gen(value,False)
+                    if (isinstance(nexttoken,int)):
+                        opstring+=str(nexttoken)+","
+                    else:
+                        opstring+=nexttoken+","
+                    descstring+=descstring1+","
+                    arglist.append(nexttoken)
+                    print("Filter Arglist =",arglist)
+                opstring=opstring[:-1]+")"
+                descstring=descstring[:-1]+")"
+                filterobj=FilterClass(chr(ord(Argcol)+1)+str(Argrow))
+                print ("Filter Object =",filterobj,Argcol,Argrow)
+                if Writeflg:
+                    Formula.append("=IFERROR(IF("+Argcol+str(Argrow)+","+chr(ord(Argcol)-1)+str(Argrow)+',""""),"""")')
+                    Copydown.append(True)
+                    Desccol.append(descstring)
+                print("\t*** in Filter",opstring,filterobj)
+                return opstring,descstring,filterobj
+            elif (functype=='map'):
+                print("Addressing map now")
+                descstring="Map("
+                arglist=[]
+                print("In Map: Number of args",len(d['args']),"Args",d['args'])
+                for value in d['args']:
+                    nexttoken,descstring1,_=Decode_Gen(value,False)
+                    if (isinstance(nexttoken,int)):
+                        opstring+=str(nexttoken)+","
+                    else:
+                        opstring+=nexttoken+","
+                    descstring+=descstring1+","
+                    arglist.append(nexttoken)
+                    print("Map Arglist =",arglist)
+                opsstring=opstring[:-1]+")"
+                descstring=descstring[:-1]+")"
+                mapobj=MapClass(chr(ord(Argcol)+1)+str(Argrow))
+                print ("Map Object =",mapobj)
+                if Writeflg:
+                    Formula.append("="+Argcol+str(Argrow))
+                    Copydown.append(True)
+                    Desccol.append(descstring)
+                print("\t*** in Map",opstring,mapobj)
+                return opstring,descstring,mapobj
+            opstring=functype+'('
             count=len(d['args'])
-            start='0'
-            step='1'
-            stop='0'
-            if count==1:
-                stop,stopd,_=Decode_Gen(d['args'][0],False)
-                descstring+=stopd+")"
-            elif count==2:
-                start,startd,_=Decode_Gen(d['args'][0],False)
-                stop,stopd,_=Decode_Gen(d['args'][1],False)
-                descstring+=startd+","+stopd+")"
-            elif count==3:
-                start,startd,_=Decode_Gen(d['args'][0],False)
-                stop,stopd,_=Decode_Gen(d['args'][1],False)
-                step,stepd,_=Decode_Gen(d['args'][2],False)
-                descstring+=startd+","+stopd+","+stepd+")"
-            print("Start=",start,"Stop=",stop,"Step=",step)
             for value in d['args']:
-                nexttoken=Decode_Gen(value,False)[0]
-                if (isinstance(nexttoken,int)):
-                    opstring+=str(nexttoken)
-                else:
-                    opstring+=nexttoken
-                arglist.append(nexttoken)
                 if count>1:
-                    opstring+=","
+                    opstring=opstring+str(Decode_Gen(value,True)[0])+','
                 else:
-                    opstring+=")"
+                    opstring=opstring+str(Decode_Gen(value,True)[0])+')'
                 count-=1
-                print("Range Arglist=",arglist)
-            rangeobj=RangeClass("$"+Argcol+"$"+str(ARGROW),start,stop,step)
-            print("Range Object =",rangeobj)
-            print("Range Evaluation, Start:",start," Stop:",stop, "Step:",step)
-            print("\t*** in Range",opstring,descstring,rangeobj)
-            return opstring,descstring,rangeobj
-        elif (functype=='list'):
-            print("Addressing list now")
-            arglist=[]
-            count=len(d['args'])
-            print("In List:Number of args",count,"Args",d['args'])
-            descstring=""
-            for value in d['args']:
-                print("\t*** In List, value =",value)
-                nexttoken,descstring,nextobject=Decode_Gen(value,False)
-                if isinstance(nextobject,RangeClass):
-                    opstring=nextobject.makelist()
-                    if Writeflg:
-                        Formula.insert(0,"="+opstring)
-                        Copydown.insert(0,True)
-                        descstring="List("+descstring+")"
-                        Desccol.insert(0,descstring)
-                    print('\t\t*** Formula appended in List Range, Formula list is:',Formula)
-                elif isinstance(nextobject,FilterClass):
-                    opstring,opstring1=nextobject.makelist()
-                    if Writeflg:
-                        Formula.append("="+opstring)
-                        Formula.append("="+opstring1)
-                        Copydown.append(True)
-                        Copydown.append(True)
-                        descstring="List("+descstring+")"
-                        Desccol.append("__ref__")
-                        Desccol.append(descstring)
-                    print('\t\t*** Formula appended in List Filter, Formula list is:',Formula)
-                elif isinstance(nextobject,MapClass):
-                    opstring=nextobject.makelist()
-                    if Writeflg:
-                        Formula.append("="+opstring)
-                        Copydown.append(True)
-                        descstring="List("+descstring+")"
-                        Desccol.append(descstring)
-                    print('\t\t*** Formula appended in List Map, Formula list is:',Formula)
-            print("\t*** in list",Formula[-1],descstring)
-            return Formula[-1],descstring,descstring
-        elif (functype=='filter'):
-            print("Addressing filter now")
-            descstring="Filter("
-            arglist=[]
-            print("In Filter: Number of args",len(d['args']),"Args",d['args'])
-            for value in d['args']:
-                nexttoken,descstring1,_=Decode_Gen(value,False)
-                if (isinstance(nexttoken,int)):
-                    opstring+=str(nexttoken)+","
-                else:
-                    opstring+=nexttoken+","
-                descstring+=descstring1+","
-                arglist.append(nexttoken)
-                print("Filter Arglist =",arglist)
-            opstring=opstring[:-1]+")"
-            descstring=descstring[:-1]+")"
-            filterobj=FilterClass(chr(ord(Argcol)+1)+str(ARGROW))
-            print ("Filter Object =",filterobj)
-            if Writeflg:
-                Formula.append("=IFERROR(IF("+Argcol+str(ARGROW)+","+chr(ord(Argcol)-1)+str(ARGROW)+',""""),"""")')
-                Copydown.append(True)
-                Desccol.append(descstring)
-            print("\t*** in Filter",opstring,filterobj)
-            return opstring,descstring,filterobj
-        elif (functype=='map'):
-            print("Addressing map now")
-            descstring="Map("
-            arglist=[]
-            print("In Map: Number of args",len(d['args']),"Args",d['args'])
-            for value in d['args']:
-                nexttoken,descstring1,_=Decode_Gen(value,False)
-                if (isinstance(nexttoken,int)):
-                    opstring+=str(nexttoken)+","
-                else:
-                    opstring+=nexttoken+","
-                descstring+=descstring1+","
-                arglist.append(nexttoken)
-                print("Map Arglist =",arglist)
-            opsstring=opstring[:-1]+")"
-            descstring=descstring[:-1]+")"
-            mapobj=MapClass(chr(ord(Argcol)+1)+str(ARGROW))
-            print ("Map Object =",mapobj)
-            if Writeflg:
-                Formula.append("="+Argcol+str(ARGROW))
-                Copydown.append(True)
-                Desccol.append(descstring)
-            print("\t*** in Map",opstring,mapobj)
-            return opstring,descstring,mapobj
-        opstring=functype+'('
-        count=len(d['args'])
-        for value in d['args']:
-            if count>1:
-                opstring=opstring+str(Decode_Gen(value,True)[0])+','
-            else:
-                opstring=opstring+str(Decode_Gen(value,True)[0])+')'
-            count-=1
-        print("Call opstring:",opstring)
-        return opstring,[],[]
+            print("Call opstring:",opstring)
+            return opstring,[],[]
     # Check for Name and decode it as a name or its value, Python variable name or Excel cell ref
     elif isinstance(node,ast.Name):
         return Decode_Name(node,argnumflg,False),Decode_Name(node,argnumflg,True),Decode_Name(node,argnumflg,True)
@@ -467,13 +489,20 @@ def Decode_Name(node,argnumflg,pytflg):
     if pytflg or d["id"] in ('list','range','filter','map'):
         print("Name Decoded:",d["id"])
         return d["id"]
-    else:
+    elif d["id"] in Argdict:
         if argnumflg:
             print("Name Decoded, with numflag, value:",Argdict[d["id"]][1])
             return Argdict[d["id"]][1]
         else:
             print("Name Decoded, with no numflag, value:",Argdict[d["id"]][0])
             return Argdict[d["id"]][0]
+    else:
+        print("name: ",d["id"],"not found in Argdict")
+        if d["id"] in Funcdict:
+            print ("but found in Function List")
+            return Funcdict[d["id"]]
+        else:
+            return d["id"]
 # Decode nodes of type Num
 def Decode_Num(node,argnumflg):
     d=dict(ast.iter_fields(node))
@@ -498,13 +527,13 @@ class FilterClass:
         self.ref=ref
     def makelist(self):
         refcol=chr(ord(self.ref[0])+1)
-        refrow=int(self.ref[1])-1
-        endrow=str(NUMFOLDS+1)
+        refrow=int(self.ref[1:])-1
+        endrow=str(Argrow+NUMFOLDS-2)
         opstring="IF("+self.ref+'="""","""",MAX('+refcol+"$"+str(refrow)+":"+refcol+str(refrow)+")+1)"
         print("Filter Class formula =",opstring)
-        opstring1="IFERROR(INDEX("+self.ref[0]+"$"+self.ref[1]+":"+self.ref[0]+"$"+endrow+\
+        opstring1="IFERROR(INDEX("+self.ref[0]+"$"+self.ref[1:]+":"+self.ref[0]+"$"+endrow+\
                   ",MATCH(ROW()-ROW("+chr(ord(self.ref[0])-2)+"$"+str(refrow)+"),"+refcol+"$"+\
-                  self.ref[1]+":"+refcol+"$"+endrow+',0)),"""")'
+                  self.ref[1:]+":"+refcol+"$"+endrow+',0)),"""")'
         return opstring,opstring1
 
 class MapClass:
@@ -546,20 +575,31 @@ def ast_visit(node, par,level=0):
         elif (value is not None):
             disptree.create_node(str(value),str(value)+str(lines),parent=par)
 # Main Code
-# Reset global line counter, each line of output will have a unique "lines" identifier
-lines=0
-Argdict={}      # Dictionary to hold variables, their equivalent cell references and values
-Absflg=True     # Flag to make cell references absolute rather than relative
-Formula=[]      # List containing formulas to be output to CSV file
-Desccol=[]      # List containing column descriptors
-Copydown=[]     # List containing flag for each column defining on whether it is copied down
-opstring=""
+Funcdict={}     # Dictionary to hold functions defined so far and their return values
 testcode=readfunctions('input_file.txt')
-returnexp=testcode[0][testcode[0].lower().find("return")+6:]
-tree=ast.parse(testcode[0])
-disptree=Tree()
-ast_visit(tree,"root",0)
-print()
-disptree.show()
-print("\nTest Code:",testcode,"\nFunction Name: ",Funcname,"\nVariables: ",Argdict,"\nFormula: ",Formula)
-opsheetCSV(Funcname,Argdict,Formula,returnexp)
+# For each line of function definitions
+#Open file
+print("Writing Output CSV to testfile.csv")
+opfile=open("testfile.csv","w")
+for i in range(len(testcode)):
+    # Reset global line counter, each line of output will have a unique "lines" identifier
+    # Reset lists containing formulas, descriptions and Copy down formulas to be output to CSV File
+    lines=0
+    Argdict={}
+    Absflg=True
+    Formula=[]
+    Desccol=[]
+    Copydown=[]
+    opstring=""
+    returnexp=testcode[i][testcode[i].lower().find("return")+6:]
+    tree=ast.parse(testcode[i])
+    disptree=Tree()
+    ast_visit(tree,"root",0)
+    print()
+    disptree.show()
+    print ("Funcdict=",Funcdict)
+    print("\nTest Code:",testcode,"\nFunction Name: ",Funcname,"\nVariables: ",Argdict,"\nFormula: ",Formula)
+    opsheetCSV(opfile,Funcname,Argdict,Formula,returnexp)
+    Argcol="B"
+    Argrow+=NUMFOLDS+2
+opfile.close()
