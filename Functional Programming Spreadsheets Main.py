@@ -1,11 +1,14 @@
 # Main Code to decode AST including returns list of code and formula. Decodes list(range(a,b,c)) construct
+import sys
 import pdb
 import ast
+#import astor
 import re
 import random
 from params import *
 from treelib import Node,Tree
 from datetime import datetime
+from copy import deepcopy
 
 #
 # Reads in function definitions from file filename and returns list of function definitions
@@ -25,7 +28,7 @@ def readfunctions(filename):
 # Looks in formula for cells of type A-Z,0-9 in formula string and shifts them down by inc, acts recursively
 def shift_formula_down(formula,inc):
     changeflg=False
-    # Check for cell references of type [A-Z][0-9][0-9] which therefore have no absolute row references
+    # Check for cell references of type [A-Z][0-9],[0-9],[0-9] which therefore have no absolute row references
     p=re.compile('[A-Z][0-9][0-9][0-9]')
     q=re.compile('[A-Z][0-9][0-9]')
     r=re.compile('[A-Z][0-9]')
@@ -34,7 +37,6 @@ def shift_formula_down(formula,inc):
     if m:
         ms=m.start()
         changeflg=True
-        #return formula[:m.start()+1]+str(int(formula[m.start()+1])+inc)+shift_formula_down(formula[m.start()+2:],inc)
         return formula[:ms+1]+str(int(formula[ms+1:ms+4])+inc)+shift_formula_down(formula[ms+4:],inc)
     else:
         if changeflg==False:
@@ -57,10 +59,10 @@ def permitted_parameter(value):
 # Code to output results as CSV file which can be read into Excel. Needs file to be open
 def opsheetCSV(f,name,dict,formulas,retexp):
     # Write row including title,date,time and function name in first row
-    row1="Test Functional Programme to Spreadsheet"
+    row1="Test Functional Program to Spreadsheet"
     # Get timestamp and date and write it and number of folds to sheet
     now=datetime.now()
-    row1=row1+","+now.strftime("%d/%m/%Y %H:%M:%S")+","+"FOLDS: "+str(NUMFOLDS)+","
+    row1=row1+","+now.strftime("%d/%m/%Y %H:%M:%S")+","+"UNFOLDS: "+str(NUMFOLDS)+","
     rightcol=3
     # Allow spare columns for arguments before writing function call out to sheet
     for i in range(1,len(dict)):
@@ -169,7 +171,7 @@ def str_node(node):
 # Translates the Python entity represented by node into an Excel formula and description of code translated 
 def Decode_Gen(node,argnumflg):
     # Argument Dictionary is global
-    global Funcname,Funcdict,Argcol,Absflg,Writeflg
+    global Funcname,Funcdict,Argcol,Absflg,Writeflg,testarg,transdict
     # Check for Module
     if isinstance(node,ast.Module):
         print("Module Found")
@@ -178,14 +180,16 @@ def Decode_Gen(node,argnumflg):
     elif isinstance(node,ast.FunctionDef):
         d=dict(ast.iter_fields(node))
         Funcname=d['name']
+        Funcdict[Funcname]=[0,0]
         print("\t*** in Function Definition",Funcname,Funcname)
         return Funcname,Funcname,Funcname
     # Check for Arguments
     elif isinstance(node,ast.arguments):
         print("Arguments Found")
+        Funcdict[Funcname][0]=node
         # Get arguments
         d=dict(ast.iter_fields(node))
-        # Create dictionary of Argument, Cell Reference, Random value (1-50)
+        # Create dictionary of Argument, Cell Reference, Random value (2-10)
         count=len(d['args'])
         opstring=""
         for i in range(len(d['args'])):
@@ -196,9 +200,9 @@ def Decode_Gen(node,argnumflg):
                 opstring+=","
             if d1['arg'] not in Argdict:
                 if Absflg:
-                    Argdict[d1['arg']]=("$"+Argcol+"$"+str(Argrow),random.randrange(50)+1)
+                    Argdict[d1['arg']]=("$"+Argcol+"$"+str(Argrow),random.randint(2,10))
                 else:
-                    Argdict[d1['arg']]=(Argcol+str(Argrow),random.randrange(50)+1)
+                    Argdict[d1['arg']]=(Argcol+str(Argrow),random.randint(2,10))
                 print("Key added:",d1['arg'],Argdict,Argcol)
                 Argcol=chr(ord(Argcol)+1)
             else:
@@ -227,37 +231,52 @@ def Decode_Gen(node,argnumflg):
         return Formula[-1],descstring,descstring
     # Check for Return statement and derive Excel formula to calculate return value
     elif isinstance(node,ast.Return):
-        print("Return Found")
-        Funcdict[Funcname]=node
+        print("***Return Found, lines =",lines)
+        Funcdict[Funcname][1]=node
         print("Function Dictionary =",Funcdict)
-        # Set a flag to ouput formulas and titles when processing the Return class
-        Writeflg=True
         # Set all arguments found to have relative cell references (such as in Lambda functions)
         Absflg=False
         # Create Dictionary from the  Return object
         d=dict(ast.iter_fields(node))
+        print("***d=",d)
         # and decode it
         opstring,descstring,_=Decode_Gen(d['value'],False)
-        print("opstring=",opstring)
+        print("In return, opstring=",opstring)
         # If the formula string is empty then Return clause contains the only formula to output
-        if (not Formula):
+        #if (not Formula):
+        if Writeflg:
             Formula.append("="+opstring)
-            Copydown.append(False)
+            if len(Formula)>len(Copydown):
+                Copydown.append(False)
             Desccol.append(descstring)
-        print("\t*** in Return",opstring,descstring)
-        Writeflg=False
+            print("\t*** in Return",opstring,descstring)
         return opstring,descstring,descstring
     elif isinstance(node,ast.Call):
         print("Call Found")
         d=dict(ast.iter_fields(node))
         print("Call Dictionary =",d)
         print("Decoded Func",d['func'])
-        functype=Decode_Gen(d['func'],False)[0]
-        print("Decoded General: ",functype)
+        functype,calledname,_=Decode_Gen(d['func'],False)
+        print("Decoded General: ",functype,calledname)
         if isinstance(functype,ast.Return):
-            print("Need to address Return here")
-            test1,test2,_=Decode_Gen(functype,False)
-            print("Test 1 =",test1,"Test 2 =",test2)
+            print("Need to address Return here, funcname =",Funcname)
+            transdict={}
+            print("Funct dict = ",Funcdict[calledname][0].args)
+            print("d['args']= ",d['args'])
+            for argument,newarg in zip(Funcdict[calledname][0].args,d['args']):
+                print("Argument, Newarg =",argument,newarg)
+                transdict[argument.arg]=newarg
+                print("argument=",argument.arg)
+            print("Transdict=",transdict)
+            print("Transdict Keys =",list(transdict.keys()))
+            optimizer = MyOptimizer()
+            for testarg in transdict.keys():
+                print("Testarg=",testarg)
+                tree1c=deepcopy(Funcdict[calledname][1])
+                tree3 = optimizer.visit(tree1c)
+                print("Translated function is: ",ast.dump(tree3))
+            opstring,descstring,_=Decode_Gen(tree3,False)
+            return opstring,descstring,descstring
         else:
             opstring=functype+"("
             if (functype=='range'):
@@ -313,6 +332,7 @@ def Decode_Gen(node,argnumflg):
                         if Writeflg:
                             Formula.insert(0,"="+opstring)
                             Copydown.insert(0,True)
+                            Copydown.insert(0,True)
                             descstring="List("+descstring+")"
                             Desccol.insert(0,descstring)
                         print('\t\t*** Formula appended in List Range, Formula list is:',Formula)
@@ -320,23 +340,24 @@ def Decode_Gen(node,argnumflg):
                         opstring,opstring1=nextobject.makelist()
                         if Writeflg:
                             Formula.append("="+opstring)
-                            Formula.append("="+opstring1)
+                            opstring=opstring1
+                            #Formula.append("="+opstring1)
                             Copydown.append(True)
                             Copydown.append(True)
                             descstring="List("+descstring+")"
                             Desccol.append("__ref__")
-                            Desccol.append(descstring)
+                            #Desccol.append(descstring)
                         print('\t\t*** Formula appended in List Filter, Formula list is:',Formula)
                     elif isinstance(nextobject,MapClass):
                         opstring=nextobject.makelist()
                         if Writeflg:
-                            Formula.append("="+opstring)
+                            #Formula.append("="+opstring)
                             Copydown.append(True)
                             descstring="List("+descstring+")"
-                            Desccol.append(descstring)
+                            #Desccol.append(descstring)
                         print('\t\t*** Formula appended in List Map, Formula list is:',Formula)
-                print("\t*** in list",Formula[-1],descstring)
-                return Formula[-1],descstring,descstring
+                print("\t*** in list",opstring,descstring)
+                return opstring,descstring,descstring
             elif (functype=='filter'):
                 print("Addressing filter now")
                 descstring="Filter("
@@ -499,8 +520,8 @@ def Decode_Name(node,argnumflg,pytflg):
     else:
         print("name: ",d["id"],"not found in Argdict")
         if d["id"] in Funcdict:
-            print ("but found in Function List")
-            return Funcdict[d["id"]]
+            print ("but found in Function List",Funcdict[d["id"]][1])
+            return Funcdict[d["id"]][1]
         else:
             return d["id"]
 # Decode nodes of type Num
@@ -544,17 +565,31 @@ class MapClass:
         print("Map Class formula =",opstring)
         return opstring
 
-
+class MyOptimizer(ast.NodeTransformer): 
+    def visit_Name(self,node: ast.Name):
+        global testarg
+        if node.id == testarg:    
+            result1=transdict[testarg]
+            print("result1=",result1)
+            result1.lineno = node.lineno
+            result1.col_offset = node.col_offset
+            return result1
+        return node
     
 # Visit each node of the tree in recursive fashion
 def ast_visit(node, par,level=0):
     # Allow function to access global variable
-    global lines,opstring
+    global lines,opstring,Writeflg
     # print out node at current level
     statement=str_node(node)
     print(lines,'|',level,'  ' * level + statement)
     lines+=1
     opstring=""
+    # Only write out formulas if reached a return statement
+    if statement[:6]=="Return":
+        Writeflg=True
+    else:
+        Writeflg=False
     opstring=Decode_Gen(node,False)[0]
     print("OP Statement is: ",opstring)
     # if its the root node put this in display tree as root with no parent
@@ -575,31 +610,39 @@ def ast_visit(node, par,level=0):
         elif (value is not None):
             disptree.create_node(str(value),str(value)+str(lines),parent=par)
 # Main Code
-Funcdict={}     # Dictionary to hold functions defined so far and their return values
-testcode=readfunctions('input_file.txt')
+
 # For each line of function definitions
 #Open file
-print("Writing Output CSV to testfile.csv")
-opfile=open("testfile.csv","w")
-for i in range(len(testcode)):
-    # Reset global line counter, each line of output will have a unique "lines" identifier
-    # Reset lists containing formulas, descriptions and Copy down formulas to be output to CSV File
-    lines=0
-    Argdict={}
-    Absflg=True
-    Formula=[]
-    Desccol=[]
-    Copydown=[]
-    opstring=""
-    returnexp=testcode[i][testcode[i].lower().find("return")+6:]
-    tree=ast.parse(testcode[i])
-    disptree=Tree()
-    ast_visit(tree,"root",0)
-    print()
-    disptree.show()
-    print ("Funcdict=",Funcdict)
-    print("\nTest Code:",testcode,"\nFunction Name: ",Funcname,"\nVariables: ",Argdict,"\nFormula: ",Formula)
-    opsheetCSV(opfile,Funcname,Argdict,Formula,returnexp)
-    Argcol="B"
-    Argrow+=NUMFOLDS+2
-opfile.close()
+if len(sys.argv)!=3:
+    print("Need to supply exactly two arguments for the name of input file and the CSV file holding the output")
+else:
+    Funcdict={}     # Dictionary to hold functions defined so far and their return values
+    testcode=readfunctions(sys.argv[1])
+    filename=sys.argv[2]+".csv"
+    print("Writing Output CSV to:",filename)
+    opfile=open(filename,"w")
+    for i in range(len(testcode)):
+        # Reset global line counter, each line of output will have a unique "lines" identifier
+        # Reset lists containing formulas, descriptions and Copy down formulas to be output to CSV File
+        lines=0
+        Argdict={}
+        Absflg=True
+        Formula=[]
+        Desccol=[]
+        Copydown=[]
+        opstring=""
+        returnexp=testcode[i][testcode[i].lower().find("return")+6:]
+        tree=ast.parse(testcode[i])
+        disptree=Tree()
+        ast_visit(tree,"root",0)
+        print("**** END OF DIAGNOSTIC OUTPUT ****")
+        print()
+        print("Visualisation of Tree for:",testcode[i])
+        disptree.show()
+        print ("Funcdict=",Funcdict)
+        print("\nTest Code:",testcode,"\nFunction Name: ",Funcname,"\nVariables: ",Argdict,"\nFormula: ",Formula)
+        opsheetCSV(opfile,Funcname,Argdict,Formula,returnexp)
+        Argcol="B"
+        Argrow+=NUMFOLDS+2
+    opfile.close()
+pass
