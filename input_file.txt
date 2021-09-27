@@ -1,0 +1,6 @@
+def simple_function(w,x,y,z):return(-w+(x**y/x)%z)
+def range_function(x,y,z):return(list(range(x,x+y*2,z)))
+def squareseq(x): return list(map(lambda y:y*y,list(range(1,x))))
+def factors(x): return list(filter(lambda y:(x%y==0),list(range(1,x))))
+def f(x):return (x+2)
+def g(y): return (f(y)*f(y+1))
